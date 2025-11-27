@@ -12,6 +12,14 @@ const schema = a.schema({
       content: a.string(),
     })
     .authorization((allow) => [allow.publicApiKey()]),
+  
+  PaymentEvidenceSession: a
+    .model({
+      sessionId: a.string().required(),
+      status: a.enum(['PENDING', 'COMPLETED']),
+      imageUrl: a.string(),
+    })
+    .authorization((allow) => [allow.publicApiKey(), allow.authenticated()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;

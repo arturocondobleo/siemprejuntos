@@ -1,13 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Amplify } from "aws-amplify";
 import outputs from "@/amplify_outputs.json";
 import { Authenticator } from "@aws-amplify/ui-react";
+import { generateClient } from "aws-amplify/data";
+import { uploadData, getUrl } from "aws-amplify/storage";
+import { QRCodeSVG } from "qrcode.react";
+import type { Schema } from "@/amplify/data/resource";
 import "@aws-amplify/ui-react/styles.css";
 import "./../app/app.css";
 
 Amplify.configure(outputs);
+
+const client = generateClient<Schema>();
+
+interface Payment {
+  id: string;
+  monto: string;
+  recibo: string;
+  reporteCobranza: string;
+  metodoPago: string;
+  fecha: string;
+  evidencePath?: string;
+}
 
 interface CobranzaEntry {
   id: string;
@@ -16,6 +32,7 @@ interface CobranzaEntry {
   factura: string;
   total: string;
   saldo: string;
+  pagos: Payment[];
 }
 
 export default function App() {
@@ -24,6 +41,24 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<CobranzaEntry | null>(null);
+  
+  // Estado para nuevo pago
+  const [isAddingPayment, setIsAddingPayment] = useState(false);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  
+  // Estado para subida de evidencia
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadSessionId, setUploadSessionId] = useState<string | null>(null);
+  const [uploadPaymentId, setUploadPaymentId] = useState<string | null>(null);
+  const [qrUrl, setQrUrl] = useState("");
+  
+  const [newPayment, setNewPayment] = useState({
+    monto: "",
+    recibo: "",
+    reporteCobranza: "",
+    metodoPago: ""
+  });
+
   const [newEntryData, setNewEntryData] = useState({
     remision: "",
     notaVenta: "",
@@ -40,7 +75,8 @@ export default function App() {
       notaVenta: newEntryData.notaVenta,
       factura: newEntryData.factura,
       total: newEntryData.total,
-      saldo: newEntryData.total
+      saldo: newEntryData.total,
+      pagos: []
     };
     
     setEntries(prev => {
@@ -50,6 +86,119 @@ export default function App() {
     
     setShowModal(false);
     setNewEntryData({ remision: "", notaVenta: "", factura: "", total: "" });
+  };
+
+  const handleSavePayment = () => {
+    if (!selectedEntry || !newPayment.monto) return;
+
+    let updatedPayments;
+
+    if (editingPaymentId) {
+      // Actualizar pago existente
+      updatedPayments = selectedEntry.pagos.map(p => 
+        p.id === editingPaymentId 
+        ? { ...p, ...newPayment } 
+        : p
+      );
+    } else {
+      // Agregar nuevo pago
+      const payment: Payment = {
+        id: Date.now().toString(),
+        ...newPayment,
+        fecha: new Date().toLocaleDateString()
+      };
+      updatedPayments = [...(selectedEntry.pagos || []), payment];
+    }
+
+    const currentTotal = parseFloat(selectedEntry.total) || 0;
+    const totalPayments = updatedPayments.reduce((sum, p) => sum + (parseFloat(p.monto) || 0), 0);
+    const newSaldo = currentTotal - totalPayments;
+
+    setSelectedEntry({
+      ...selectedEntry,
+      pagos: updatedPayments,
+      saldo: newSaldo.toFixed(2)
+    });
+
+    setIsAddingPayment(false);
+    setEditingPaymentId(null);
+    setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "" });
+  };
+
+  const handleEditPaymentClick = (payment: Payment) => {
+    setNewPayment({
+      monto: payment.monto,
+      recibo: payment.recibo,
+      reporteCobranza: payment.reporteCobranza,
+      metodoPago: payment.metodoPago
+    });
+    setEditingPaymentId(payment.id);
+    setIsAddingPayment(true);
+  };
+
+  const handleInitiateUpload = async (paymentId: string) => {
+    setUploadPaymentId(paymentId);
+    setShowUploadModal(true);
+    
+    // Crear sesión de subida
+    const { data: session, errors } = await client.models.PaymentEvidenceSession.create({
+      sessionId: crypto.randomUUID(),
+      status: "PENDING"
+    });
+
+    if (session) {
+      setUploadSessionId(session.id);
+      // Generar URL para el QR (asumiendo que la app está desplegada o accesible)
+      const url = `${window.location.origin}/mobile-upload?sessionId=${session.id}`;
+      setQrUrl(url);
+
+      // Suscribirse a cambios
+      const sub = client.models.PaymentEvidenceSession.observeQuery({
+        filter: { id: { eq: session.id } }
+      }).subscribe({
+        next: ({ items }) => {
+          const updatedSession = items[0];
+          if (updatedSession && updatedSession.status === "COMPLETED" && updatedSession.imageUrl) {
+            handleUploadComplete(paymentId, updatedSession.imageUrl);
+            sub.unsubscribe();
+            setShowUploadModal(false);
+          }
+        }
+      });
+    }
+  };
+
+  const handleUploadComplete = (paymentId: string, path: string) => {
+    if (!selectedEntry) return;
+
+    const updatedPayments = selectedEntry.pagos.map(p => 
+      p.id === paymentId ? { ...p, evidencePath: path } : p
+    );
+
+    setSelectedEntry({
+      ...selectedEntry,
+      pagos: updatedPayments
+    });
+  };
+
+  const handleManualUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0] && uploadPaymentId) {
+      const file = e.target.files[0];
+      const filename = `evidence/manual-${Date.now()}-${file.name}`;
+      
+      try {
+        await uploadData({
+          path: filename,
+          data: file,
+        }).result;
+        
+        handleUploadComplete(uploadPaymentId, filename);
+        setShowUploadModal(false);
+      } catch (err) {
+        console.error("Error uploading file:", err);
+        alert("Error al subir el archivo");
+      }
+    }
   };
 
   const handleUpdate = () => {
@@ -242,6 +391,47 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Modal de Subida de Evidencia */}
+                {showUploadModal && (
+                  <div className="modal-overlay" style={{ zIndex: 1100 }}>
+                    <div className="modal" style={{ maxWidth: '400px', textAlign: 'center' }}>
+                      <h3>Subir Evidencia</h3>
+                      <p>Selecciona una opción para subir la evidencia del pago.</p>
+                      
+                      <div style={{ margin: '2rem 0' }}>
+                        <h4>Opción 1: Desde tu PC</h4>
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          onChange={handleManualUpload}
+                          style={{ marginTop: '0.5rem' }}
+                        />
+                      </div>
+
+                      <div style={{ borderTop: '1px solid #eee', paddingTop: '1rem' }}>
+                        <h4>Opción 2: Desde tu Celular</h4>
+                        <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
+                          Escanea este código QR con tu cámara:
+                        </p>
+                        <div style={{ background: 'white', padding: '1rem', display: 'inline-block', border: '1px solid #ddd', borderRadius: '8px' }}>
+                          {qrUrl && <QRCodeSVG value={qrUrl} size={200} />}
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: '#888', marginTop: '0.5rem' }}>
+                          La página se actualizará automáticamente cuando subas la foto.
+                        </p>
+                      </div>
+
+                      <button 
+                        className="btn-cancel" 
+                        onClick={() => setShowUploadModal(false)}
+                        style={{ marginTop: '1rem', width: '100%' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Modal para Detalles de Entrada */}
                 {selectedEntry && (
                   <div className="modal-overlay">
@@ -295,9 +485,113 @@ export default function App() {
                       </div>
 
                       <div className="card-section">
-                        <h3 className="section-title">Pagos</h3>
-                        <div className="placeholder-section">
-                          Próximamente...
+                        <div className="header" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: '1rem' }}>
+                          <h3 className="section-title" style={{ margin: 0 }}>Pagos</h3>
+                          {!isAddingPayment && (
+                            <button 
+                              className="btn-primary btn-small"
+                              onClick={() => setIsAddingPayment(true)}
+                            >
+                              + Agregar Pago
+                            </button>
+                          )}
+                        </div>
+
+                        {isAddingPayment && (
+                          <div className="add-payment-form">
+                            <h4>{editingPaymentId ? 'Editar Pago' : 'Nuevo Pago'}</h4>
+                            <div className="card-row">
+                              <div className="input-group">
+                                <label>Monto del pago $</label>
+                                <input 
+                                  type="number" 
+                                  value={newPayment.monto}
+                                  onChange={e => setNewPayment({...newPayment, monto: e.target.value})}
+                                  autoFocus
+                                />
+                              </div>
+                              <div className="input-group">
+                                <label>Número de recibo</label>
+                                <input 
+                                  type="text" 
+                                  value={newPayment.recibo}
+                                  onChange={e => setNewPayment({...newPayment, recibo: e.target.value})}
+                                />
+                              </div>
+                              <div className="input-group">
+                                <label>Reporte de cobranza</label>
+                                <input 
+                                  type="text" 
+                                  value={newPayment.reporteCobranza}
+                                  onChange={e => setNewPayment({...newPayment, reporteCobranza: e.target.value})}
+                                />
+                              </div>
+                              <div className="input-group">
+                                <label>Método de pago</label>
+                                <input 
+                                  type="text" 
+                                  value={newPayment.metodoPago}
+                                  onChange={e => setNewPayment({...newPayment, metodoPago: e.target.value})}
+                                  placeholder="Efectivo, Transferencia..."
+                                />
+                              </div>
+                            </div>
+                            <div className="modal-actions">
+                              <button className="btn-cancel" onClick={() => {
+                                setIsAddingPayment(false);
+                                setEditingPaymentId(null);
+                                setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "" });
+                              }}>
+                                Cancelar
+                              </button>
+                              <button className="btn-primary" onClick={handleSavePayment}>
+                                {editingPaymentId ? 'Actualizar Pago' : 'Confirmar Pago'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="payment-list">
+                          {selectedEntry.pagos && selectedEntry.pagos.length > 0 ? (
+                            selectedEntry.pagos.map((pago) => (
+                              <div 
+                                key={pago.id} 
+                                className="payment-card"
+                                onClick={() => handleEditPaymentClick(pago)}
+                                title="Click para editar"
+                              >
+                                <div className="payment-header">
+                                  <span>{pago.fecha}</span>
+                                  <span className="payment-amount">${pago.monto}</span>
+                                </div>
+                                <div className="payment-details">
+                                  <div className="payment-detail-item">
+                                    <strong>Recibo:</strong> {pago.recibo}
+                                  </div>
+                                  <div className="payment-detail-item">
+                                    <strong>Reporte:</strong> {pago.reporteCobranza}
+                                  </div>
+                                  <div className="payment-detail-item">
+                                    <strong>Método de pago:</strong> {pago.metodoPago}
+                                  </div>
+                                </div>
+                                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                  <button 
+                                    className="btn-secondary btn-small"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleInitiateUpload(pago.id);
+                                    }}
+                                  >
+                                    {pago.evidencePath ? '📷 Ver/Cambiar Evidencia' : '📷 Subir Evidencia'}
+                                  </button>
+                                  {pago.evidencePath && <span style={{ color: 'green', fontSize: '0.8rem' }}>✓ Evidencia cargada</span>}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            !isAddingPayment && <p className="placeholder-text">No hay pagos registrados</p>
+                          )}
                         </div>
                       </div>
 
