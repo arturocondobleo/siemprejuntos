@@ -449,6 +449,18 @@ export default function App() {
                         </p>
                       </div>
 
+                      <div style={{ marginBottom: '1rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
+                         <label className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', padding: '0.5rem 1rem', width: '100%', boxSizing: 'border-box' }}>
+                            Subir sin usar QR
+                            <input 
+                              type="file" 
+                              accept="image/*"
+                              onChange={handleManualUpload}
+                              style={{ display: 'none' }}
+                            />
+                         </label>
+                      </div>
+
                       <button 
                         className="btn-cancel" 
                         onClick={() => setShowUploadModal(false)}
