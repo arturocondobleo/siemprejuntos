@@ -5,7 +5,7 @@ import { Amplify } from "aws-amplify";
 import outputs from "@/amplify_outputs.json";
 import { Authenticator } from "@aws-amplify/ui-react";
 import { generateClient } from "aws-amplify/data";
-import { uploadData, getUrl } from "aws-amplify/storage";
+import { uploadData, getUrl, remove } from "aws-amplify/storage";
 import { QRCodeSVG } from "qrcode.react";
 import type { Schema } from "@/amplify/data/resource";
 import "@aws-amplify/ui-react/styles.css";
@@ -22,7 +22,7 @@ interface Payment {
   reporteCobranza: string;
   metodoPago: string;
   fecha: string;
-  evidencePath?: string;
+  evidencePaths?: string[];
 }
 
 interface CobranzaEntry {
@@ -35,11 +35,52 @@ interface CobranzaEntry {
   pagos: Payment[];
 }
 
+const EvidenceThumbnail = ({ path, onDelete }: { path: string, onDelete: () => void }) => {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getUrl({ path }).then(res => setUrl(res.url.toString())).catch(console.error);
+  }, [path]);
+
+  if (!url) return <div style={{ width: '50px', height: '50px', background: '#eee', borderRadius: '4px' }} />;
+
+  return (
+    <div style={{ position: 'relative', width: '50px', height: '50px', border: '1px solid #ddd', borderRadius: '4px', overflow: 'hidden' }}>
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        <img src={url} alt="Evidencia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      </a>
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDelete();
+        }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          background: 'rgba(255,0,0,0.7)',
+          color: 'white',
+          border: 'none',
+          width: '15px',
+          height: '15px',
+          fontSize: '10px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+};
+
 export default function App() {
   const [view, setView] = useState<"dashboard" | "cobranza">("dashboard");
   const [entries, setEntries] = useState<CobranzaEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [showModal, setShowModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<CobranzaEntry | null>(null);
   
   // Estado para nuevo pago
@@ -52,40 +93,31 @@ export default function App() {
   const [uploadPaymentId, setUploadPaymentId] = useState<string | null>(null);
   const [qrUrl, setQrUrl] = useState("");
   
-  const [newPayment, setNewPayment] = useState({
+  const [newPayment, setNewPayment] = useState<{
+    monto: string;
+    recibo: string;
+    reporteCobranza: string;
+    metodoPago: string;
+    evidencePaths: string[];
+  }>({
     monto: "",
     recibo: "",
     reporteCobranza: "",
-    metodoPago: ""
+    metodoPago: "",
+    evidencePaths: []
   });
 
-  const [newEntryData, setNewEntryData] = useState({
-    remision: "",
-    notaVenta: "",
-    factura: "",
-    total: ""
-  });
-
-  const handleAdd = () => {
-    if (!newEntryData.remision) return; // Basic validation
-
-    const entry: CobranzaEntry = {
+  const handleCreateNew = () => {
+    const newEntry: CobranzaEntry = {
       id: Date.now().toString(),
-      remision: newEntryData.remision,
-      notaVenta: newEntryData.notaVenta,
-      factura: newEntryData.factura,
-      total: newEntryData.total,
-      saldo: newEntryData.total,
+      remision: "",
+      notaVenta: "",
+      factura: "",
+      total: "",
+      saldo: "",
       pagos: []
     };
-    
-    setEntries(prev => {
-      const newEntries = [...prev, entry];
-      return newEntries.sort((a, b) => Number(b.remision) - Number(a.remision));
-    });
-    
-    setShowModal(false);
-    setNewEntryData({ remision: "", notaVenta: "", factura: "", total: "" });
+    setSelectedEntry(newEntry);
   };
 
   const handleSavePayment = () => {
@@ -122,7 +154,7 @@ export default function App() {
 
     setIsAddingPayment(false);
     setEditingPaymentId(null);
-    setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "" });
+    setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "", evidencePaths: [] });
   };
 
   const handleEditPaymentClick = (payment: Payment) => {
@@ -130,7 +162,8 @@ export default function App() {
       monto: payment.monto,
       recibo: payment.recibo,
       reporteCobranza: payment.reporteCobranza,
-      metodoPago: payment.metodoPago
+      metodoPago: payment.metodoPago,
+      evidencePaths: payment.evidencePaths || []
     });
     setEditingPaymentId(payment.id);
     setIsAddingPayment(true);
@@ -169,16 +202,64 @@ export default function App() {
   };
 
   const handleUploadComplete = (paymentId: string, path: string) => {
-    if (!selectedEntry) return;
+    // Si estamos editando/creando un pago en el formulario, actualizamos el estado local del formulario
+    if (paymentId === "NEW_PAYMENT" || paymentId === editingPaymentId) {
+      setNewPayment(prev => ({
+        ...prev,
+        evidencePaths: [...prev.evidencePaths, path]
+      }));
+    }
 
-    const updatedPayments = selectedEntry.pagos.map(p => 
-      p.id === paymentId ? { ...p, evidencePath: path } : p
-    );
+    // Si estamos editando un pago existente, TAMBIÉN actualizamos la lista principal
+    if (selectedEntry && paymentId !== "NEW_PAYMENT") {
+      const updatedPayments = selectedEntry.pagos.map(p => {
+        if (p.id === paymentId) {
+          const currentPaths = p.evidencePaths || [];
+          return { ...p, evidencePaths: [...currentPaths, path] };
+        }
+        return p;
+      });
 
-    setSelectedEntry({
-      ...selectedEntry,
-      pagos: updatedPayments
-    });
+      setSelectedEntry({
+        ...selectedEntry,
+        pagos: updatedPayments
+      });
+    }
+  };
+
+  const handleDeleteEvidence = async (paymentId: string, pathToDelete: string) => {
+    try {
+      await remove({ path: pathToDelete });
+      
+      // Si estamos en el formulario, actualizamos el estado local
+      if (paymentId === "NEW_PAYMENT" || paymentId === editingPaymentId) {
+        setNewPayment(prev => ({
+          ...prev,
+          evidencePaths: prev.evidencePaths.filter(p => p !== pathToDelete)
+        }));
+      }
+
+      // Si es un pago existente, actualizamos la lista principal
+      if (selectedEntry && paymentId !== "NEW_PAYMENT") {
+        const updatedPayments = selectedEntry.pagos.map(p => {
+          if (p.id === paymentId) {
+            return { 
+              ...p, 
+              evidencePaths: (p.evidencePaths || []).filter(path => path !== pathToDelete) 
+            };
+          }
+          return p;
+        });
+
+        setSelectedEntry({
+          ...selectedEntry,
+          pagos: updatedPayments
+        });
+      }
+    } catch (error) {
+      console.error("Error deleting evidence:", error);
+      alert("Error al eliminar la evidencia");
+    }
   };
 
   const handleManualUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,7 +286,15 @@ export default function App() {
     if (!selectedEntry) return;
     
     setEntries(prev => {
-      const updatedEntries = prev.map(e => e.id === selectedEntry.id ? selectedEntry : e);
+      const exists = prev.some(e => e.id === selectedEntry.id);
+      let updatedEntries;
+      
+      if (exists) {
+        updatedEntries = prev.map(e => e.id === selectedEntry.id ? selectedEntry : e);
+      } else {
+        updatedEntries = [...prev, selectedEntry];
+      }
+      
       return updatedEntries.sort((a, b) => Number(b.remision) - Number(a.remision));
     });
     setSelectedEntry(null);
@@ -340,79 +429,18 @@ export default function App() {
                   {renderCobranzaList()}
                 </div>
 
-                <button className="fab-add" onClick={() => setShowModal(true)}>
+                <button className="fab-add" onClick={handleCreateNew}>
                   +
                 </button>
-
-                {/* Modal para Nueva Entrada */}
-                {showModal && (
-                  <div className="modal-overlay">
-                    <div className="modal">
-                      <h2>Nueva Entrada</h2>
-                      <div className="input-group">
-                        <label>Número de remisión</label>
-                        <input 
-                          type="number" 
-                          value={newEntryData.remision}
-                          onChange={e => setNewEntryData({...newEntryData, remision: e.target.value})}
-                          placeholder="Ej. 1001"
-                          autoFocus
-                        />
-                      </div>
-                      <div className="input-group">
-                        <label>Nota de venta</label>
-                        <input 
-                          type="text" 
-                          value={newEntryData.notaVenta}
-                          onChange={e => setNewEntryData({...newEntryData, notaVenta: e.target.value})}
-                        />
-                      </div>
-                      <div className="input-group">
-                        <label>Factura</label>
-                        <input 
-                          type="text" 
-                          value={newEntryData.factura}
-                          onChange={e => setNewEntryData({...newEntryData, factura: e.target.value})}
-                        />
-                      </div>
-                      <div className="input-group">
-                        <label>Total de la nota $</label>
-                        <input 
-                          type="number" 
-                          value={newEntryData.total}
-                          onChange={e => setNewEntryData({...newEntryData, total: e.target.value})}
-                        />
-                      </div>
-                      <div className="modal-actions">
-                        <button className="btn-cancel" onClick={() => setShowModal(false)}>Cancelar</button>
-                        <button className="btn-primary" onClick={handleAdd}>Agregar</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {/* Modal de Subida de Evidencia */}
                 {showUploadModal && (
                   <div className="modal-overlay" style={{ zIndex: 1100 }}>
                     <div className="modal" style={{ maxWidth: '400px', textAlign: 'center' }}>
                       <h3>Subir Evidencia</h3>
-                      <p>Selecciona una opción para subir la evidencia del pago.</p>
+                      <p>Escanea el código QR con tu celular para subir la foto.</p>
                       
                       <div style={{ margin: '2rem 0' }}>
-                        <h4>Opción 1: Desde tu PC</h4>
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          onChange={handleManualUpload}
-                          style={{ marginTop: '0.5rem' }}
-                        />
-                      </div>
-
-                      <div style={{ borderTop: '1px solid #eee', paddingTop: '1rem' }}>
-                        <h4>Opción 2: Desde tu Celular</h4>
-                        <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
-                          Escanea este código QR con tu cámara:
-                        </p>
                         <div style={{ background: 'white', padding: '1rem', display: 'inline-block', border: '1px solid #ddd', borderRadius: '8px' }}>
                           {qrUrl && <QRCodeSVG value={qrUrl} size={200} />}
                         </div>
@@ -536,11 +564,46 @@ export default function App() {
                                 />
                               </div>
                             </div>
+
+                            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                              <button 
+                                className="btn-secondary"
+                                style={{ 
+                                  background: '#f0f0f0', 
+                                  border: '1px solid #ccc', 
+                                  padding: '0.5rem 1rem', 
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.5rem',
+                                  height: '50px'
+                                }}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  // Usamos "NEW_PAYMENT" si estamos creando uno nuevo, o el ID si estamos editando
+                                  handleInitiateUpload(editingPaymentId || "NEW_PAYMENT");
+                                }}
+                              >
+                                <span>📷</span> Subir evidencia
+                              </button>
+
+                              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                {newPayment.evidencePaths.map((path, index) => (
+                                  <EvidenceThumbnail 
+                                    key={index} 
+                                    path={path} 
+                                    onDelete={() => handleDeleteEvidence(editingPaymentId || "NEW_PAYMENT", path)} 
+                                  />
+                                ))}
+                              </div>
+                            </div>
+
                             <div className="modal-actions">
                               <button className="btn-cancel" onClick={() => {
                                 setIsAddingPayment(false);
                                 setEditingPaymentId(null);
-                                setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "" });
+                                setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "", evidencePaths: [] });
                               }}>
                                 Cancelar
                               </button>
@@ -575,18 +638,11 @@ export default function App() {
                                     <strong>Método de pago:</strong> {pago.metodoPago}
                                   </div>
                                 </div>
-                                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                  <button 
-                                    className="btn-secondary btn-small"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleInitiateUpload(pago.id);
-                                    }}
-                                  >
-                                    {pago.evidencePath ? '📷 Ver/Cambiar Evidencia' : '📷 Subir Evidencia'}
-                                  </button>
-                                  {pago.evidencePath && <span style={{ color: 'green', fontSize: '0.8rem' }}>✓ Evidencia cargada</span>}
-                                </div>
+                                {pago.evidencePaths && pago.evidencePaths.length > 0 && (
+                                  <div style={{ marginTop: '0.5rem' }}>
+                                    <span style={{ color: 'green', fontSize: '0.8rem' }}>✓ {pago.evidencePaths.length} Evidencia(s) cargada(s)</span>
+                                  </div>
+                                )}
                               </div>
                             ))
                           ) : (
