@@ -23,6 +23,7 @@ export default function App() {
   const [entries, setEntries] = useState<CobranzaEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<CobranzaEntry | null>(null);
   const [newEntryData, setNewEntryData] = useState({
     remision: "",
     notaVenta: "",
@@ -51,11 +52,97 @@ export default function App() {
     setNewEntryData({ remision: "", notaVenta: "", factura: "", total: "" });
   };
 
+  const handleUpdate = () => {
+    if (!selectedEntry) return;
+    
+    setEntries(prev => {
+      const updatedEntries = prev.map(e => e.id === selectedEntry.id ? selectedEntry : e);
+      return updatedEntries.sort((a, b) => Number(b.remision) - Number(a.remision));
+    });
+    setSelectedEntry(null);
+  };
+
   const filteredEntries = entries.filter(e => 
     e.remision.toLowerCase().includes(searchTerm.toLowerCase()) || 
     e.notaVenta.toLowerCase().includes(searchTerm.toLowerCase()) || 
     e.factura.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const renderCobranzaList = () => {
+    // Si hay búsqueda, mostramos solo los resultados sin gaps
+    if (searchTerm) {
+      if (filteredEntries.length === 0) {
+        return <p style={{ textAlign: 'center', color: '#888' }}>No hay registros</p>;
+      }
+      return filteredEntries.map((entry) => (
+        <div 
+          key={entry.id} 
+          className="cobranza-card summary-card"
+          onClick={() => setSelectedEntry(entry)}
+        >
+          <div className="card-row">
+            <div className="input-group">
+              <label>Número de remisión</label>
+              <div className="value-display">{entry.remision}</div>
+            </div>
+            <div className="input-group">
+              <label>Nota de venta</label>
+              <div className="value-display">{entry.notaVenta}</div>
+            </div>
+          </div>
+        </div>
+      ));
+    }
+
+    // Si no hay búsqueda, mostramos la lista completa con gaps
+    if (entries.length === 0) {
+      return <p style={{ textAlign: 'center', color: '#888' }}>No hay registros</p>;
+    }
+
+    const listItems = [];
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      
+      // Renderizar la entrada actual
+      listItems.push(
+        <div 
+          key={entry.id} 
+          className="cobranza-card summary-card"
+          onClick={() => setSelectedEntry(entry)}
+        >
+          <div className="card-row">
+            <div className="input-group">
+              <label>Número de remisión</label>
+              <div className="value-display">{entry.remision}</div>
+            </div>
+            <div className="input-group">
+              <label>Nota de venta</label>
+              <div className="value-display">{entry.notaVenta}</div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // Calcular y renderizar gap si existe
+      if (i < entries.length - 1) {
+        const currentRemision = parseInt(entry.remision);
+        const nextRemision = parseInt(entries[i + 1].remision);
+        
+        if (!isNaN(currentRemision) && !isNaN(nextRemision) && (currentRemision - nextRemision > 1)) {
+          const missing = [];
+          for (let j = currentRemision - 1; j > nextRemision; j--) {
+            missing.push(j);
+          }
+          listItems.push(
+            <div key={`gap-${entry.id}`} className="gap-separator">
+              ⚠️ Pendiente agregar: {missing.join(', ')}
+            </div>
+          );
+        }
+      }
+    }
+    return listItems;
+  };
 
   return (
     <Authenticator>
@@ -101,55 +188,14 @@ export default function App() {
                 />
 
                 <div className="cobranza-list">
-                  {filteredEntries.map((entry) => (
-                    <div key={entry.id} className="cobranza-card">
-                      <div className="card-row">
-                        <div className="input-group">
-                          <label>Número de remisión</label>
-                          <input type="text" value={entry.remision} readOnly />
-                        </div>
-                        <div className="input-group">
-                          <label>Nota de venta</label>
-                          <input type="text" value={entry.notaVenta} readOnly />
-                        </div>
-                        <div className="input-group">
-                          <label>Factura</label>
-                          <input type="text" value={entry.factura} readOnly />
-                        </div>
-                        <div className="input-group">
-                          <label>Total de la nota $</label>
-                          <input type="text" value={entry.total} readOnly />
-                        </div>
-                      </div>
-                      
-                      <div className="saldo-label">
-                        Saldo: ${entry.saldo}
-                      </div>
-
-                      <div className="card-section">
-                        <h3 className="section-title">Pagos</h3>
-                        <div className="placeholder-section">
-                          Próximamente...
-                        </div>
-                      </div>
-
-                      <div className="card-section">
-                        <h3 className="section-title">Historial de cambios</h3>
-                        <div className="placeholder-section">
-                          Registro de actividad...
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {filteredEntries.length === 0 && (
-                    <p style={{ textAlign: 'center', color: '#888' }}>No hay registros</p>
-                  )}
+                  {renderCobranzaList()}
                 </div>
 
                 <button className="fab-add" onClick={() => setShowModal(true)}>
                   +
                 </button>
 
+                {/* Modal para Nueva Entrada */}
                 {showModal && (
                   <div className="modal-overlay">
                     <div className="modal">
@@ -191,6 +237,80 @@ export default function App() {
                       <div className="modal-actions">
                         <button className="btn-cancel" onClick={() => setShowModal(false)}>Cancelar</button>
                         <button className="btn-primary" onClick={handleAdd}>Agregar</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Modal para Detalles de Entrada */}
+                {selectedEntry && (
+                  <div className="modal-overlay">
+                    <div className="modal modal-large">
+                      <div className="modal-header">
+                        <h2>Detalles de Cobranza</h2>
+                        <button className="close-button" onClick={() => setSelectedEntry(null)}>×</button>
+                      </div>
+                      
+                      <div className="card-row">
+                        <div className="input-group">
+                          <label>Número de remisión</label>
+                          <input 
+                            type="number" 
+                            value={selectedEntry.remision} 
+                            onChange={(e) => setSelectedEntry({...selectedEntry, remision: e.target.value})}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Nota de venta</label>
+                          <input 
+                            type="text" 
+                            value={selectedEntry.notaVenta} 
+                            onChange={(e) => setSelectedEntry({...selectedEntry, notaVenta: e.target.value})}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Factura</label>
+                          <input 
+                            type="text" 
+                            value={selectedEntry.factura} 
+                            onChange={(e) => setSelectedEntry({...selectedEntry, factura: e.target.value})}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Total de la nota $</label>
+                          <input 
+                            type="number" 
+                            value={selectedEntry.total} 
+                            onChange={(e) => setSelectedEntry({
+                              ...selectedEntry, 
+                              total: e.target.value,
+                              saldo: e.target.value // Actualizamos saldo igual al total por ahora
+                            })}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="saldo-label">
+                        Saldo: ${selectedEntry.saldo}
+                      </div>
+
+                      <div className="card-section">
+                        <h3 className="section-title">Pagos</h3>
+                        <div className="placeholder-section">
+                          Próximamente...
+                        </div>
+                      </div>
+
+                      <div className="card-section">
+                        <h3 className="section-title">Historial de cambios</h3>
+                        <div className="placeholder-section">
+                          Registro de actividad...
+                        </div>
+                      </div>
+                      
+                      <div className="modal-actions">
+                        <button className="btn-cancel" onClick={() => setSelectedEntry(null)}>Cancelar</button>
+                        <button className="btn-primary" onClick={handleUpdate}>Guardar</button>
                       </div>
                     </div>
                   </div>
