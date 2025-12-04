@@ -662,8 +662,8 @@ export default function App() {
 
                 {/* Modal de Subida de Evidencia */}
                 {showUploadModal && (
-                  <div className="modal-overlay" style={{ zIndex: 1100 }}>
-                    <div className="modal" style={{ maxWidth: '400px', textAlign: 'center' }}>
+                  <div className="modal-overlay" style={{ zIndex: 1200 }}>
+                    <div className="modal" style={{ maxWidth: '400px', textAlign: 'center', maxHeight: '90vh', overflowY: 'auto' }}>
                       <h3>Subir Evidencia</h3>
                       <p>Escanea el código QR con tu celular para subir la foto.</p>
                       
@@ -703,7 +703,7 @@ export default function App() {
                 {viewingImage && (
                   <div 
                     className="modal-overlay" 
-                    style={{ zIndex: 1200, background: 'rgba(0,0,0,0.9)' }}
+                    style={{ zIndex: 1300, background: 'rgba(0,0,0,0.9)' }}
                     onClick={() => setViewingImage(null)}
                   >
                     <div 
