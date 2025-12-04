@@ -115,9 +115,16 @@ export default function App() {
     const sub = client.models.Cobranza.observeQuery().subscribe({
       next: ({ items }) => {
         const mapped = items.map(item => ({
-          ...item,
-          pagos: [] // Placeholder, loaded on select
-        })) as CobranzaEntry[];
+          id: item.id,
+          remision: item.remision ?? "",
+          notaVenta: item.notaVenta ?? "",
+          factura: item.factura ?? "",
+          total: item.total ?? "",
+          saldo: item.saldo ?? "",
+          pagos: [], // Placeholder, loaded on select
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt
+        }));
         setEntries(mapped.sort((a, b) => Number(b.remision) - Number(a.remision)));
       }
     });
@@ -145,8 +152,15 @@ export default function App() {
       setSelectedEntry({
         ...entry,
         pagos: payments.map(p => ({
-          ...p,
-          evidencePaths: p.evidencePaths ? p.evidencePaths.filter((x): x is string => x !== null) : []
+          id: p.id,
+          monto: p.monto ?? "",
+          recibo: p.recibo ?? "",
+          reporteCobranza: p.reporteCobranza ?? "",
+          metodoPago: p.metodoPago ?? "",
+          fecha: p.fecha ?? "",
+          evidencePaths: p.evidencePaths ? p.evidencePaths.filter((x): x is string => x !== null) : [],
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt
         }))
       });
     } else {
@@ -199,7 +213,7 @@ export default function App() {
       metodoPago: payment.metodoPago,
       evidencePaths: payment.evidencePaths || []
     });
-    setEditingPaymentId(payment.id);
+    setEditingPaymentId(payment.id || null);
     setIsAddingPayment(true);
   };
 
@@ -332,6 +346,7 @@ export default function App() {
           saldo: selectedEntry.saldo,
         });
         if (errors) throw new Error(errors[0].message);
+        if (!data) throw new Error("Error creating Cobranza");
         cobranzaId = data.id;
       } else {
         // Update
