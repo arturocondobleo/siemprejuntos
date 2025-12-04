@@ -617,11 +617,17 @@ export default function App() {
                           <input 
                             type="number" 
                             value={selectedEntry.total} 
-                            onChange={(e) => setSelectedEntry({
-                              ...selectedEntry, 
-                              total: e.target.value,
-                              saldo: e.target.value // Actualizamos saldo igual al total por ahora
-                            })}
+                            onChange={(e) => {
+                              const newTotal = parseFloat(e.target.value) || 0;
+                              const totalPayments = selectedEntry.pagos.reduce((sum, p) => sum + (parseFloat(p.monto) || 0), 0);
+                              const newSaldo = newTotal - totalPayments;
+                              
+                              setSelectedEntry({
+                                ...selectedEntry, 
+                                total: e.target.value,
+                                saldo: newSaldo.toFixed(2)
+                              });
+                            }}
                           />
                         </div>
                       </div>
