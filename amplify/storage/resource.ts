@@ -5,7 +5,8 @@ export const storage = defineStorage({
   access: (allow) => ({
     'evidence/*': [
       allow.authenticated.to(['read', 'write', 'delete']),
-      allow.guest.to(['read', 'write', 'delete']) // Allow guests for the mobile upload flow if not logged in
+      allow.guest.to(['read', 'write', 'delete']), // Allow guests for the mobile upload flow if not logged in
+      allow.group('Admins').to(['read', 'write', 'delete'])
     ]
   })
 });
