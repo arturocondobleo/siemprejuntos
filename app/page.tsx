@@ -39,7 +39,7 @@ interface CobranzaEntry {
   updatedAt?: string;
 }
 
-const EvidenceThumbnail = ({ path, onDelete }: { path: string, onDelete: () => void }) => {
+const EvidenceThumbnail = ({ path, onDelete, onView }: { path: string, onDelete: () => void, onView: (url: string) => void }) => {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,9 +50,16 @@ const EvidenceThumbnail = ({ path, onDelete }: { path: string, onDelete: () => v
 
   return (
     <div style={{ position: 'relative', width: '50px', height: '50px', border: '1px solid #ddd', borderRadius: '4px', overflow: 'hidden' }}>
-      <a href={url} target="_blank" rel="noopener noreferrer">
+      <div 
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onView(url);
+        }}
+        style={{ cursor: 'pointer', width: '100%', height: '100%' }}
+      >
         <img src={url} alt="Evidencia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-      </a>
+      </div>
       <button
         onClick={(e) => {
           e.preventDefault();
@@ -96,6 +103,7 @@ export default function App() {
   const [uploadSessionId, setUploadSessionId] = useState<string | null>(null);
   const [uploadPaymentId, setUploadPaymentId] = useState<string | null>(null);
   const [qrUrl, setQrUrl] = useState("");
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
   
   const [newPayment, setNewPayment] = useState<{
     monto: string;
@@ -578,6 +586,53 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Modal de Visualización de Imagen */}
+                {viewingImage && (
+                  <div 
+                    className="modal-overlay" 
+                    style={{ zIndex: 1200, background: 'rgba(0,0,0,0.9)' }}
+                    onClick={() => setViewingImage(null)}
+                  >
+                    <div 
+                      style={{ 
+                        position: 'relative', 
+                        maxWidth: '90vw', 
+                        maxHeight: '90vh',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center'
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <img 
+                        src={viewingImage} 
+                        alt="Evidencia completa" 
+                        style={{ 
+                          maxWidth: '100%', 
+                          maxHeight: '90vh', 
+                          objectFit: 'contain',
+                          borderRadius: '4px'
+                        }} 
+                      />
+                      <button
+                        onClick={() => setViewingImage(null)}
+                        style={{
+                          position: 'absolute',
+                          top: '-40px',
+                          right: '-40px',
+                          background: 'none',
+                          border: 'none',
+                          color: 'white',
+                          fontSize: '2rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Modal para Detalles de Entrada */}
                 {selectedEntry && (
                   <div className="modal-overlay">
@@ -718,6 +773,7 @@ export default function App() {
                                     key={index} 
                                     path={path} 
                                     onDelete={() => handleDeleteEvidence(editingPaymentId || "NEW_PAYMENT", path)} 
+                                    onView={(url) => setViewingImage(url)}
                                   />
                                 ))}
                               </div>
