@@ -633,6 +633,109 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Modal para Agregar/Editar Pago */}
+                {isAddingPayment && (
+                  <div className="modal-overlay" style={{ zIndex: 1150 }}>
+                    <div className="modal">
+                      <div className="modal-header">
+                        <h4>{editingPaymentId ? 'Editar Pago' : 'Nuevo Pago'}</h4>
+                        <button 
+                          className="close-button" 
+                          onClick={() => {
+                            setIsAddingPayment(false);
+                            setEditingPaymentId(null);
+                            setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "", evidencePaths: [] });
+                          }}
+                        >×</button>
+                      </div>
+                      
+                      <div className="card-row">
+                        <div className="input-group">
+                          <label>Monto del pago $</label>
+                          <input 
+                            type="number" 
+                            value={newPayment.monto}
+                            onChange={e => setNewPayment({...newPayment, monto: e.target.value})}
+                            autoFocus
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Número de recibo</label>
+                          <input 
+                            type="text" 
+                            value={newPayment.recibo}
+                            onChange={e => setNewPayment({...newPayment, recibo: e.target.value})}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Reporte de cobranza</label>
+                          <input 
+                            type="text" 
+                            value={newPayment.reporteCobranza}
+                            onChange={e => setNewPayment({...newPayment, reporteCobranza: e.target.value})}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Método de pago</label>
+                          <input 
+                            type="text" 
+                            value={newPayment.metodoPago}
+                            onChange={e => setNewPayment({...newPayment, metodoPago: e.target.value})}
+                            placeholder="Efectivo, Transferencia..."
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                        <button 
+                          className="btn-secondary"
+                          style={{ 
+                            background: '#f0f0f0', 
+                            border: '1px solid #ccc', 
+                            padding: '0.5rem 1rem', 
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            height: '50px'
+                          }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleInitiateUpload(editingPaymentId || "NEW_PAYMENT");
+                          }}
+                        >
+                          <span>📷</span> Subir evidencia
+                        </button>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {newPayment.evidencePaths.map((path, index) => (
+                            <EvidenceThumbnail 
+                              key={index} 
+                              path={path} 
+                              onDelete={() => handleDeleteEvidence(editingPaymentId || "NEW_PAYMENT", path)} 
+                              onView={(url) => setViewingImage(url)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="modal-actions">
+                        <button className="btn-cancel" onClick={() => {
+                          setIsAddingPayment(false);
+                          setEditingPaymentId(null);
+                          setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "", evidencePaths: [] });
+                        }}>
+                          Cancelar
+                        </button>
+                        <button className="btn-primary" onClick={handleSavePayment}>
+                          {editingPaymentId ? 'Actualizar Pago' : 'Confirmar Pago'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Modal para Detalles de Entrada */}
                 {selectedEntry && (
                   <div className="modal-overlay">
@@ -694,105 +797,13 @@ export default function App() {
                       <div className="card-section">
                         <div className="header" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: '1rem' }}>
                           <h3 className="section-title" style={{ margin: 0 }}>Pagos</h3>
-                          {!isAddingPayment && (
-                            <button 
-                              className="btn-primary btn-small"
-                              onClick={() => setIsAddingPayment(true)}
-                            >
-                              + Agregar Pago
-                            </button>
-                          )}
+                          <button 
+                            className="btn-primary btn-small"
+                            onClick={() => setIsAddingPayment(true)}
+                          >
+                            + Agregar Pago
+                          </button>
                         </div>
-
-                        {isAddingPayment && (
-                          <div className="add-payment-form">
-                            <h4>{editingPaymentId ? 'Editar Pago' : 'Nuevo Pago'}</h4>
-                            <div className="card-row">
-                              <div className="input-group">
-                                <label>Monto del pago $</label>
-                                <input 
-                                  type="number" 
-                                  value={newPayment.monto}
-                                  onChange={e => setNewPayment({...newPayment, monto: e.target.value})}
-                                  autoFocus
-                                />
-                              </div>
-                              <div className="input-group">
-                                <label>Número de recibo</label>
-                                <input 
-                                  type="text" 
-                                  value={newPayment.recibo}
-                                  onChange={e => setNewPayment({...newPayment, recibo: e.target.value})}
-                                />
-                              </div>
-                              <div className="input-group">
-                                <label>Reporte de cobranza</label>
-                                <input 
-                                  type="text" 
-                                  value={newPayment.reporteCobranza}
-                                  onChange={e => setNewPayment({...newPayment, reporteCobranza: e.target.value})}
-                                />
-                              </div>
-                              <div className="input-group">
-                                <label>Método de pago</label>
-                                <input 
-                                  type="text" 
-                                  value={newPayment.metodoPago}
-                                  onChange={e => setNewPayment({...newPayment, metodoPago: e.target.value})}
-                                  placeholder="Efectivo, Transferencia..."
-                                />
-                              </div>
-                            </div>
-
-                            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-                              <button 
-                                className="btn-secondary"
-                                style={{ 
-                                  background: '#f0f0f0', 
-                                  border: '1px solid #ccc', 
-                                  padding: '0.5rem 1rem', 
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.5rem',
-                                  height: '50px'
-                                }}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  // Usamos "NEW_PAYMENT" si estamos creando uno nuevo, o el ID si estamos editando
-                                  handleInitiateUpload(editingPaymentId || "NEW_PAYMENT");
-                                }}
-                              >
-                                <span>📷</span> Subir evidencia
-                              </button>
-
-                              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                {newPayment.evidencePaths.map((path, index) => (
-                                  <EvidenceThumbnail 
-                                    key={index} 
-                                    path={path} 
-                                    onDelete={() => handleDeleteEvidence(editingPaymentId || "NEW_PAYMENT", path)} 
-                                    onView={(url) => setViewingImage(url)}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="modal-actions">
-                              <button className="btn-cancel" onClick={() => {
-                                setIsAddingPayment(false);
-                                setEditingPaymentId(null);
-                                setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "", evidencePaths: [] });
-                              }}>
-                                Cancelar
-                              </button>
-                              <button className="btn-primary" onClick={handleSavePayment}>
-                                {editingPaymentId ? 'Actualizar Pago' : 'Confirmar Pago'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
 
                         <div className="payment-list">
                           {selectedEntry.pagos && selectedEntry.pagos.length > 0 ? (
