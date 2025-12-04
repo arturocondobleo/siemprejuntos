@@ -20,6 +20,7 @@ const schema = a.schema({
       factura: a.string(),
       total: a.string(),
       saldo: a.string(),
+      isBlocked: a.boolean(),
       pagos: a.hasMany('Payment', 'cobranzaId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),

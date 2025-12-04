@@ -6,6 +6,7 @@ import outputs from "@/amplify_outputs.json";
 import { Authenticator } from "@aws-amplify/ui-react";
 import { generateClient } from "aws-amplify/data";
 import { uploadData, getUrl, remove } from "aws-amplify/storage";
+import { fetchAuthSession } from "aws-amplify/auth";
 import { QRCodeSVG } from "qrcode.react";
 import type { Schema } from "@/amplify/data/resource";
 import "@aws-amplify/ui-react/styles.css";
@@ -34,6 +35,7 @@ interface CobranzaEntry {
   factura: string;
   total: string;
   saldo: string;
+  isBlocked?: boolean | null;
   pagos: Payment[];
   createdAt?: string;
   updatedAt?: string;
@@ -104,6 +106,7 @@ export default function App() {
   const [uploadPaymentId, setUploadPaymentId] = useState<string | null>(null);
   const [qrUrl, setQrUrl] = useState("");
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   
   const [newPayment, setNewPayment] = useState<{
     monto: string;
@@ -120,6 +123,13 @@ export default function App() {
   });
 
   useEffect(() => {
+    fetchAuthSession().then(session => {
+      const groups = session.tokens?.accessToken.payload['cognito:groups'];
+      if (Array.isArray(groups) && groups.includes('Admins')) {
+        setIsAdmin(true);
+      }
+    }).catch(console.error);
+
     const sub = client.models.Cobranza.observeQuery().subscribe({
       next: ({ items }) => {
         const mapped = items.map(item => ({
@@ -129,6 +139,7 @@ export default function App() {
           factura: item.factura ?? "",
           total: item.total ?? "",
           saldo: item.saldo ?? "",
+          isBlocked: item.isBlocked,
           pagos: [], // Placeholder, loaded on select
           createdAt: item.createdAt,
           updatedAt: item.updatedAt
@@ -431,10 +442,14 @@ export default function App() {
           key={entry.id} 
           className="cobranza-card summary-card"
           onClick={() => handleSelectEntry(entry)}
+          style={entry.isBlocked ? { background: '#e8f5e9', border: '1px solid #4caf50' } : {}}
         >
           <div className="card-row">
             <div className="input-group">
-              <label>Número de remisión</label>
+              <label>
+                Número de remisión
+                {entry.isBlocked && <span style={{ marginLeft: '0.5rem' }}>🔒</span>}
+              </label>
               <div className="value-display">{entry.remision}</div>
             </div>
             <div className="input-group">
@@ -461,10 +476,14 @@ export default function App() {
           key={entry.id} 
           className="cobranza-card summary-card"
           onClick={() => handleSelectEntry(entry)}
+          style={entry.isBlocked ? { background: '#e8f5e9', border: '1px solid #4caf50' } : {}}
         >
           <div className="card-row">
             <div className="input-group">
-              <label>Número de remisión</label>
+              <label>
+                Número de remisión
+                {entry.isBlocked && <span style={{ marginLeft: '0.5rem' }}>🔒</span>}
+              </label>
               <div className="value-display">{entry.remision}</div>
             </div>
             <div className="input-group">
@@ -656,7 +675,6 @@ export default function App() {
                             type="number" 
                             value={newPayment.monto}
                             onChange={e => setNewPayment({...newPayment, monto: e.target.value})}
-                            autoFocus
                           />
                         </div>
                         <div className="input-group">
@@ -741,8 +759,35 @@ export default function App() {
                   <div className="modal-overlay">
                     <div className="modal modal-large">
                       <div className="modal-header">
-                        <h2>Detalles de Cobranza</h2>
-                        <button className="close-button" onClick={() => setSelectedEntry(null)}>×</button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <h2>Detalles de Cobranza</h2>
+                          {selectedEntry.isBlocked && <span style={{ fontSize: '1.5rem' }}>🔒</span>}
+                        </div>
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                          {isAdmin && selectedEntry.id && (
+                            <button 
+                              className="btn-secondary"
+                              onClick={async () => {
+                                try {
+                                  await client.models.Cobranza.update({
+                                    id: selectedEntry.id!,
+                                    isBlocked: !selectedEntry.isBlocked
+                                  });
+                                  setSelectedEntry({
+                                    ...selectedEntry,
+                                    isBlocked: !selectedEntry.isBlocked
+                                  });
+                                } catch (e) {
+                                  console.error(e);
+                                  alert("Error al cambiar estado de bloqueo");
+                                }
+                              }}
+                            >
+                              {selectedEntry.isBlocked ? "🔓 Desbloquear" : "🔒 Bloquear"}
+                            </button>
+                          )}
+                          <button className="close-button" onClick={() => setSelectedEntry(null)}>×</button>
+                        </div>
                       </div>
                       
                       <div className="card-row">
@@ -752,6 +797,7 @@ export default function App() {
                             type="number" 
                             value={selectedEntry.remision} 
                             onChange={(e) => setSelectedEntry({...selectedEntry, remision: e.target.value})}
+                            disabled={!!selectedEntry.isBlocked}
                           />
                         </div>
                         <div className="input-group">
@@ -760,6 +806,7 @@ export default function App() {
                             type="text" 
                             value={selectedEntry.notaVenta} 
                             onChange={(e) => setSelectedEntry({...selectedEntry, notaVenta: e.target.value})}
+                            disabled={!!selectedEntry.isBlocked}
                           />
                         </div>
                         <div className="input-group">
@@ -768,6 +815,7 @@ export default function App() {
                             type="text" 
                             value={selectedEntry.factura} 
                             onChange={(e) => setSelectedEntry({...selectedEntry, factura: e.target.value})}
+                            disabled={!!selectedEntry.isBlocked}
                           />
                         </div>
                         <div className="input-group">
@@ -786,6 +834,7 @@ export default function App() {
                                 saldo: newSaldo.toFixed(2)
                               });
                             }}
+                            disabled={!!selectedEntry.isBlocked}
                           />
                         </div>
                       </div>
@@ -797,12 +846,14 @@ export default function App() {
                       <div className="card-section">
                         <div className="header" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: '1rem' }}>
                           <h3 className="section-title" style={{ margin: 0 }}>Pagos</h3>
-                          <button 
-                            className="btn-primary btn-small"
-                            onClick={() => setIsAddingPayment(true)}
-                          >
-                            + Agregar Pago
-                          </button>
+                          {!selectedEntry.isBlocked && (
+                            <button 
+                              className="btn-primary btn-small"
+                              onClick={() => setIsAddingPayment(true)}
+                            >
+                              + Agregar Pago
+                            </button>
+                          )}
                         </div>
 
                         <div className="payment-list">
@@ -811,8 +862,9 @@ export default function App() {
                               <div 
                                 key={pago.id} 
                                 className="payment-card"
-                                onClick={() => handleEditPaymentClick(pago)}
-                                title="Click para editar"
+                                onClick={() => !selectedEntry.isBlocked && handleEditPaymentClick(pago)}
+                                title={selectedEntry.isBlocked ? "Bloqueado" : "Click para editar"}
+                                style={selectedEntry.isBlocked ? { cursor: 'default', opacity: 0.8 } : {}}
                               >
                                 <div className="payment-header">
                                   <span>{pago.fecha}</span>
@@ -851,7 +903,9 @@ export default function App() {
                       
                       <div className="modal-actions">
                         <button className="btn-cancel" onClick={() => setSelectedEntry(null)}>Cancelar</button>
-                        <button className="btn-primary" onClick={handleUpdate}>Guardar</button>
+                        {!selectedEntry.isBlocked && (
+                          <button className="btn-primary" onClick={handleUpdate}>Guardar</button>
+                        )}
                       </div>
                     </div>
                   </div>
