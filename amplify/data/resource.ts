@@ -45,6 +45,13 @@ const schema = a.schema({
       imageUrl: a.string(),
     })
     .authorization((allow) => [allow.publicApiKey(), allow.authenticated()]),
+
+  AppSettings: a
+    .model({
+      settingKey: a.string().required(),
+      value: a.boolean(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;

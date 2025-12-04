@@ -109,6 +109,7 @@ export default function App() {
   const [qrUrl, setQrUrl] = useState("");
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isRegistrationEnabled, setIsRegistrationEnabled] = useState(true);
   
   const [newPayment, setNewPayment] = useState<{
     monto: string;
@@ -125,6 +126,18 @@ export default function App() {
   });
 
   useEffect(() => {
+    // Fetch registration setting
+    client.models.AppSettings.list({
+      filter: { settingKey: { eq: 'registration' } }
+    }).then(({ data }) => {
+      if (data.length > 0) {
+        setIsRegistrationEnabled(data[0].value ?? true);
+      } else {
+        // Default to true if not set
+        setIsRegistrationEnabled(true);
+      }
+    }).catch(console.error);
+
     fetchAuthSession().then(session => {
       const groups = session.tokens?.accessToken.payload['cognito:groups'];
       if (Array.isArray(groups) && groups.includes('Admins')) {
@@ -151,6 +164,72 @@ export default function App() {
     });
     return () => sub.unsubscribe();
   }, []);
+
+  const handleToggleRegistration = async () => {
+    if (!confirm(`¿Estás seguro de que deseas ${isRegistrationEnabled ? 'DESACTIVAR' : 'ACTIVAR'} el registro de nuevos usuarios?`)) return;
+
+    try {
+      const { data } = await client.models.AppSettings.list({
+        filter: { settingKey: { eq: 'registration' } }
+      });
+
+      if (data.length > 0) {
+        await client.models.AppSettings.update({
+          id: data[0].id,
+          value: !isRegistrationEnabled
+        });
+      } else {
+        await client.models.AppSettings.create({
+          settingKey: 'registration',
+          value: !isRegistrationEnabled
+        });
+      }
+      setIsRegistrationEnabled(!isRegistrationEnabled);
+      alert(`Registro de usuarios ${!isRegistrationEnabled ? 'ACTIVADO' : 'DESACTIVADO'}`);
+    } catch (e) {
+      console.error(e);
+      alert("Error al cambiar configuración");
+    }
+  };
+
+  const handleDeleteEntry = async () => {
+    if (!selectedEntry || !selectedEntry.id) return;
+    if (!confirm("¿ESTÁS SEGURO? Esta acción eliminará permanentemente la entrada, todos sus pagos y todas las evidencias asociadas. NO SE PUEDE DESHACER.")) return;
+
+    try {
+      // 1. Fetch all payments to get evidence paths
+      const { data: payments } = await client.models.Payment.list({
+        filter: { cobranzaId: { eq: selectedEntry.id } }
+      });
+
+      // 2. Delete evidence files and payment records
+      for (const payment of payments) {
+        if (payment.evidencePaths) {
+          for (const path of payment.evidencePaths) {
+            if (path) {
+              try {
+                await remove({ path });
+              } catch (e) {
+                console.warn("Could not delete file:", path, e);
+              }
+            }
+          }
+        }
+        await client.models.Payment.delete({ id: payment.id });
+      }
+
+      // 3. Delete Cobranza record
+      await client.models.Cobranza.delete({ id: selectedEntry.id });
+
+      // 4. Update UI
+      setEntries(prev => prev.filter(e => e.id !== selectedEntry.id));
+      setSelectedEntry(null);
+      alert("Entrada eliminada correctamente");
+    } catch (e) {
+      console.error(e);
+      alert("Error al eliminar la entrada");
+    }
+  };
 
   const handleCreateNew = () => {
     const newEntry: CobranzaEntry = {
@@ -518,7 +597,7 @@ export default function App() {
   };
 
   return (
-    <Authenticator>
+    <Authenticator hideSignUp={!isRegistrationEnabled}>
       {({ signOut, user }) => (
         <main>
           {view === "dashboard" ? (
@@ -529,6 +608,19 @@ export default function App() {
                   Cerrar sesión
                 </button>
               </header>
+              
+              {isAdmin && (
+                <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #dee2e6' }}>
+                  <h3 style={{ marginTop: 0 }}>Panel de Administrador</h3>
+                  <button 
+                    onClick={handleToggleRegistration}
+                    className="btn-secondary"
+                    style={{ width: '100%', background: isRegistrationEnabled ? '#ffebee' : '#e8f5e9', color: isRegistrationEnabled ? '#c62828' : '#2e7d32', borderColor: 'currentColor' }}
+                  >
+                    {isRegistrationEnabled ? '🚫 Desactivar Registro de Usuarios' : '✅ Activar Registro de Usuarios'}
+                  </button>
+                </div>
+              )}
               
               <div className="grid-menu">
                 <button 
@@ -776,26 +868,35 @@ export default function App() {
                         </div>
                         <div style={{ display: 'flex', gap: '1rem' }}>
                           {isAdmin && selectedEntry.id && (
-                            <button 
-                              className="btn-secondary"
-                              onClick={async () => {
-                                try {
-                                  await client.models.Cobranza.update({
-                                    id: selectedEntry.id!,
-                                    isBlocked: !selectedEntry.isBlocked
-                                  });
-                                  setSelectedEntry({
-                                    ...selectedEntry,
-                                    isBlocked: !selectedEntry.isBlocked
-                                  });
-                                } catch (e) {
-                                  console.error(e);
-                                  alert("Error al cambiar estado de bloqueo");
-                                }
-                              }}
-                            >
-                              {selectedEntry.isBlocked ? "🔓 Desbloquear" : "🔒 Bloquear"}
-                            </button>
+                            <>
+                              <button 
+                                className="btn-secondary"
+                                style={{ background: '#ffebee', color: '#c62828', borderColor: '#c62828' }}
+                                onClick={handleDeleteEntry}
+                              >
+                                🗑️ Eliminar
+                              </button>
+                              <button 
+                                className="btn-secondary"
+                                onClick={async () => {
+                                  try {
+                                    await client.models.Cobranza.update({
+                                      id: selectedEntry.id!,
+                                      isBlocked: !selectedEntry.isBlocked
+                                    });
+                                    setSelectedEntry({
+                                      ...selectedEntry,
+                                      isBlocked: !selectedEntry.isBlocked
+                                    });
+                                  } catch (e) {
+                                    console.error(e);
+                                    alert("Error al cambiar estado de bloqueo");
+                                  }
+                                }}
+                              >
+                                {selectedEntry.isBlocked ? "🔓 Desbloquear" : "🔒 Bloquear"}
+                              </button>
+                            </>
                           )}
                           <button className="close-button" onClick={() => setSelectedEntry(null)}>×</button>
                         </div>
