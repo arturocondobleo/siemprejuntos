@@ -334,6 +334,20 @@ export default function App() {
     if (!selectedEntry) return;
 
     try {
+      // Validar duplicados de remisión
+      if (selectedEntry.remision) {
+        const { data: existingRemision } = await client.models.Cobranza.list({
+          filter: { remision: { eq: selectedEntry.remision } }
+        });
+
+        const isDuplicate = existingRemision.some(item => item.id !== selectedEntry.id);
+        
+        if (isDuplicate) {
+          alert("Ya existe una entrada con este número de remisión.");
+          return;
+        }
+      }
+
       let cobranzaId = selectedEntry.id;
 
       if (!cobranzaId) {
