@@ -41,7 +41,7 @@ interface CobranzaEntry {
   updatedAt?: string;
 }
 
-const EvidenceThumbnail = ({ path, onDelete, onView }: { path: string, onDelete: () => void, onView: (url: string) => void }) => {
+const EvidenceThumbnail = ({ path, onDelete, onView, readOnly }: { path: string, onDelete?: () => void, onView: (url: string) => void, readOnly?: boolean }) => {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,30 +62,32 @@ const EvidenceThumbnail = ({ path, onDelete, onView }: { path: string, onDelete:
       >
         <img src={url} alt="Evidencia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </div>
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDelete();
-        }}
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          background: 'rgba(255,0,0,0.7)',
-          color: 'white',
-          border: 'none',
-          width: '15px',
-          height: '15px',
-          fontSize: '10px',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
-        ×
-      </button>
+      {!readOnly && onDelete && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete();
+          }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            background: 'rgba(255,0,0,0.7)',
+            color: 'white',
+            border: 'none',
+            width: '15px',
+            height: '15px',
+            fontSize: '10px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 };
@@ -657,7 +659,7 @@ export default function App() {
                   <div className="modal-overlay" style={{ zIndex: 1150 }}>
                     <div className="modal">
                       <div className="modal-header">
-                        <h4>{editingPaymentId ? 'Editar Pago' : 'Nuevo Pago'}</h4>
+                        <h4>{editingPaymentId ? (selectedEntry?.isBlocked ? 'Detalles del Pago' : 'Editar Pago') : 'Nuevo Pago'}</h4>
                         <button 
                           className="close-button" 
                           onClick={() => {
@@ -675,6 +677,7 @@ export default function App() {
                             type="number" 
                             value={newPayment.monto}
                             onChange={e => setNewPayment({...newPayment, monto: e.target.value})}
+                            disabled={!!selectedEntry?.isBlocked}
                           />
                         </div>
                         <div className="input-group">
@@ -683,6 +686,7 @@ export default function App() {
                             type="text" 
                             value={newPayment.recibo}
                             onChange={e => setNewPayment({...newPayment, recibo: e.target.value})}
+                            disabled={!!selectedEntry?.isBlocked}
                           />
                         </div>
                         <div className="input-group">
@@ -691,6 +695,7 @@ export default function App() {
                             type="text" 
                             value={newPayment.reporteCobranza}
                             onChange={e => setNewPayment({...newPayment, reporteCobranza: e.target.value})}
+                            disabled={!!selectedEntry?.isBlocked}
                           />
                         </div>
                         <div className="input-group">
@@ -700,31 +705,34 @@ export default function App() {
                             value={newPayment.metodoPago}
                             onChange={e => setNewPayment({...newPayment, metodoPago: e.target.value})}
                             placeholder="Efectivo, Transferencia..."
+                            disabled={!!selectedEntry?.isBlocked}
                           />
                         </div>
                       </div>
 
                       <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-                        <button 
-                          className="btn-secondary"
-                          style={{ 
-                            background: '#f0f0f0', 
-                            border: '1px solid #ccc', 
-                            padding: '0.5rem 1rem', 
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            height: '50px'
-                          }}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleInitiateUpload(editingPaymentId || "NEW_PAYMENT");
-                          }}
-                        >
-                          <span>📷</span> Subir evidencia
-                        </button>
+                        {!selectedEntry?.isBlocked && (
+                          <button 
+                            className="btn-secondary"
+                            style={{ 
+                              background: '#f0f0f0', 
+                              border: '1px solid #ccc', 
+                              padding: '0.5rem 1rem', 
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              height: '50px'
+                            }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleInitiateUpload(editingPaymentId || "NEW_PAYMENT");
+                            }}
+                          >
+                            <span>📷</span> Subir evidencia
+                          </button>
+                        )}
 
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                           {newPayment.evidencePaths.map((path, index) => (
@@ -733,6 +741,7 @@ export default function App() {
                               path={path} 
                               onDelete={() => handleDeleteEvidence(editingPaymentId || "NEW_PAYMENT", path)} 
                               onView={(url) => setViewingImage(url)}
+                              readOnly={!!selectedEntry?.isBlocked}
                             />
                           ))}
                         </div>
@@ -744,11 +753,13 @@ export default function App() {
                           setEditingPaymentId(null);
                           setNewPayment({ monto: "", recibo: "", reporteCobranza: "", metodoPago: "", evidencePaths: [] });
                         }}>
-                          Cancelar
+                          {selectedEntry?.isBlocked ? 'Cerrar' : 'Cancelar'}
                         </button>
-                        <button className="btn-primary" onClick={handleSavePayment}>
-                          {editingPaymentId ? 'Actualizar Pago' : 'Confirmar Pago'}
-                        </button>
+                        {!selectedEntry?.isBlocked && (
+                          <button className="btn-primary" onClick={handleSavePayment}>
+                            {editingPaymentId ? 'Actualizar Pago' : 'Confirmar Pago'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -862,9 +873,9 @@ export default function App() {
                               <div 
                                 key={pago.id} 
                                 className="payment-card"
-                                onClick={() => !selectedEntry.isBlocked && handleEditPaymentClick(pago)}
-                                title={selectedEntry.isBlocked ? "Bloqueado" : "Click para editar"}
-                                style={selectedEntry.isBlocked ? { cursor: 'default', opacity: 0.8 } : {}}
+                                onClick={() => handleEditPaymentClick(pago)}
+                                title="Click para ver detalles"
+                                style={{ cursor: 'pointer' }}
                               >
                                 <div className="payment-header">
                                   <span>{pago.fecha}</span>
