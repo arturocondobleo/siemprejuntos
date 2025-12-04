@@ -16,23 +16,27 @@ Amplify.configure(outputs);
 const client = generateClient<Schema>();
 
 interface Payment {
-  id: string;
+  id?: string;
   monto: string;
   recibo: string;
   reporteCobranza: string;
   metodoPago: string;
   fecha: string;
   evidencePaths?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface CobranzaEntry {
-  id: string;
+  id?: string;
   remision: string;
   notaVenta: string;
   factura: string;
   total: string;
   saldo: string;
   pagos: Payment[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const EvidenceThumbnail = ({ path, onDelete }: { path: string, onDelete: () => void }) => {
@@ -107,9 +111,21 @@ export default function App() {
     evidencePaths: []
   });
 
+  useEffect(() => {
+    const sub = client.models.Cobranza.observeQuery().subscribe({
+      next: ({ items }) => {
+        const mapped = items.map(item => ({
+          ...item,
+          pagos: [] // Placeholder, loaded on select
+        })) as CobranzaEntry[];
+        setEntries(mapped.sort((a, b) => Number(b.remision) - Number(a.remision)));
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
+
   const handleCreateNew = () => {
     const newEntry: CobranzaEntry = {
-      id: Date.now().toString(),
       remision: "",
       notaVenta: "",
       factura: "",
@@ -118,6 +134,24 @@ export default function App() {
       pagos: []
     };
     setSelectedEntry(newEntry);
+  };
+
+  const handleSelectEntry = async (entry: CobranzaEntry) => {
+    if (entry.id) {
+      const { data: payments } = await client.models.Payment.list({
+        filter: { cobranzaId: { eq: entry.id } }
+      });
+      
+      setSelectedEntry({
+        ...entry,
+        pagos: payments.map(p => ({
+          ...p,
+          evidencePaths: p.evidencePaths ? p.evidencePaths.filter((x): x is string => x !== null) : []
+        }))
+      });
+    } else {
+      setSelectedEntry(entry);
+    }
   };
 
   const handleSavePayment = () => {
@@ -135,7 +169,7 @@ export default function App() {
     } else {
       // Agregar nuevo pago
       const payment: Payment = {
-        id: Date.now().toString(),
+        id: `temp-${Date.now()}`, // Temp ID
         ...newPayment,
         fecha: new Date().toLocaleDateString()
       };
@@ -282,22 +316,65 @@ export default function App() {
     }
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!selectedEntry) return;
-    
-    setEntries(prev => {
-      const exists = prev.some(e => e.id === selectedEntry.id);
-      let updatedEntries;
-      
-      if (exists) {
-        updatedEntries = prev.map(e => e.id === selectedEntry.id ? selectedEntry : e);
+
+    try {
+      let cobranzaId = selectedEntry.id;
+
+      if (!cobranzaId) {
+        // Create
+        const { data, errors } = await client.models.Cobranza.create({
+          remision: selectedEntry.remision,
+          notaVenta: selectedEntry.notaVenta,
+          factura: selectedEntry.factura,
+          total: selectedEntry.total,
+          saldo: selectedEntry.saldo,
+        });
+        if (errors) throw new Error(errors[0].message);
+        cobranzaId = data.id;
       } else {
-        updatedEntries = [...prev, selectedEntry];
+        // Update
+        const { errors } = await client.models.Cobranza.update({
+          id: cobranzaId,
+          remision: selectedEntry.remision,
+          notaVenta: selectedEntry.notaVenta,
+          factura: selectedEntry.factura,
+          total: selectedEntry.total,
+          saldo: selectedEntry.saldo,
+        });
+        if (errors) throw new Error(errors[0].message);
       }
-      
-      return updatedEntries.sort((a, b) => Number(b.remision) - Number(a.remision));
-    });
-    setSelectedEntry(null);
+
+      // Handle Payments
+      if (selectedEntry.pagos) {
+        for (const p of selectedEntry.pagos) {
+           const paymentData = {
+             monto: p.monto,
+             recibo: p.recibo,
+             reporteCobranza: p.reporteCobranza,
+             metodoPago: p.metodoPago,
+             fecha: p.fecha,
+             evidencePaths: p.evidencePaths ? p.evidencePaths.filter((x): x is string => x !== null) : [],
+             cobranzaId: cobranzaId
+           };
+
+           if (!p.id || p.id.startsWith('temp-')) {
+             await client.models.Payment.create(paymentData);
+           } else {
+             await client.models.Payment.update({
+               id: p.id,
+               ...paymentData
+             });
+           }
+        }
+      }
+
+      setSelectedEntry(null);
+    } catch (e) {
+      console.error("Error saving:", e);
+      alert("Error al guardar");
+    }
   };
 
   const filteredEntries = entries.filter(e => 
@@ -316,7 +393,7 @@ export default function App() {
         <div 
           key={entry.id} 
           className="cobranza-card summary-card"
-          onClick={() => setSelectedEntry(entry)}
+          onClick={() => handleSelectEntry(entry)}
         >
           <div className="card-row">
             <div className="input-group">
@@ -346,7 +423,7 @@ export default function App() {
         <div 
           key={entry.id} 
           className="cobranza-card summary-card"
-          onClick={() => setSelectedEntry(entry)}
+          onClick={() => handleSelectEntry(entry)}
         >
           <div className="card-row">
             <div className="input-group">

@@ -13,6 +13,30 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.publicApiKey()]),
   
+  Cobranza: a
+    .model({
+      remision: a.string(),
+      notaVenta: a.string(),
+      factura: a.string(),
+      total: a.string(),
+      saldo: a.string(),
+      pagos: a.hasMany('Payment', 'cobranzaId'),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  Payment: a
+    .model({
+      monto: a.string(),
+      recibo: a.string(),
+      reporteCobranza: a.string(),
+      metodoPago: a.string(),
+      fecha: a.string(),
+      evidencePaths: a.string().array(),
+      cobranzaId: a.id(),
+      cobranza: a.belongsTo('Cobranza', 'cobranzaId'),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
   PaymentEvidenceSession: a
     .model({
       sessionId: a.string().required(),
